@@ -1,7 +1,7 @@
 #!/bin/bash
-# Builder for MeshCentral Agent DMG
+# Builder for MeshCentral Agent DMG (v3 - .app Bundle Version)
 
-APP_NAME="MeshAgent_Installer"
+APP_NAME="MeshAgent Installer"
 DMG_NAME="MeshAgent_Installer.dmg"
 AGENT_URL="https://mc.sdelaem.it/meshagents?id=Llm0Cl6GNpFwA7SnYKthExb%24RnHpj%24jg2%40fUQxGA5dPS7bLXFYNudmjEdkRq2ah0&installflags=2&meshinstall=10005"
 
@@ -9,80 +9,90 @@ AGENT_URL="https://mc.sdelaem.it/meshagents?id=Llm0Cl6GNpFwA7SnYKthExb%24RnHpj%2
 rm -rf build dist
 mkdir -p build dist
 
+# Define App Bundle paths
+APP_BUNDLE="build/$APP_NAME.app"
+CONTENTS="$APP_BUNDLE/Contents"
+MACOS="$CONTENTS/MacOS"
+
+echo "Creating App Bundle structure..."
+mkdir -p "$MACOS"
+
 # Download the agent
 echo "Downloading agent..."
-curl -L -o build/meshagent "$AGENT_URL"
-chmod +x build/meshagent
+curl -L -o "$MACOS/meshagent" "$AGENT_URL"
+chmod +x "$MACOS/meshagent"
 
-# Ad-hoc sign the binary (Important for Apple Silicon / M1+ Macs to prevent "Damaged" error)
-echo "Signing agent binary..."
-codesign -s - --force build/meshagent 2>/dev/null || echo "Codesign warning (can be ignored on Linux)"
-
-# Create the installer wrapper script
-# .command extension makes it double-clickable in macOS Finder
-cat <<EOF > build/Install_MeshAgent.command
+# Create the main executable script for the App
+SCRIPT_PATH="$MACOS/MeshAgent Installer"
+cat <<EOF > "$SCRIPT_PATH"
 #!/bin/bash
+# Launcher for MeshCentral Agent
+# This script runs when the User launches the .app
+
+# Get the directory where the script is running
 DIR="\$( cd "\$( dirname "\${BASH_SOURCE[0]}" )" && pwd )"
 INSTALL_DIR="/tmp/meshagent_install_\$RANDOM"
 
-# Fix "Language environment variable was not set"
+# GUI Prompt function using AppleScript
+function show_dialog() {
+    osascript -e "display dialog \"\$1\" buttons {\"OK\"} default button \"OK\" with icon note with title \"MeshAgent Installer\""
+}
+
+# Fix locale
 export LANG=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
 
-# Clear terminal
-clear
-echo "=========================================="
-echo "   MeshCentral Agent Installer"
-echo "=========================================="
-echo ""
+# Use AppleScript to ask for Admin Password nicely
+# This runs the installation command with administrator privileges
+echo "Prompting for password..."
+osascript -e "do shell script \"'$DIR/meshagent' -install\" with administrator privileges"
 
-# Copy to temp dir to bypass read-only DMG issues
-echo "Preparing installer..."
-mkdir -p "\$INSTALL_DIR"
-cp "\$DIR/meshagent" "\$INSTALL_DIR/"
-chmod +x "\$INSTALL_DIR/meshagent"
-
-echo "Installing MeshCentral Agent..."
-echo "Note: You may be asked for your password."
-echo ""
-# Run the agent install command
-sudo "\$INSTALL_DIR/meshagent" -install
-
-echo ""
-echo "Cleaning up..."
-rm -rf "\$INSTALL_DIR"
-
-echo "=========================================="
-echo "   Installation Complete!"
-echo "=========================================="
-echo "You can close this window."
-# Keep window open to show status
-read -p "Press Enter to exit..."
+if [ \$? -eq 0 ]; then
+    show_dialog "Installation successful! The agent is now running."
+else
+    show_dialog "Installation failed or was cancelled."
+fi
 EOF
 
-chmod +x build/Install_MeshAgent.command
+chmod +x "$SCRIPT_PATH"
 
-# Ad-hoc sign the command wrapper
-codesign -s - --force build/Install_MeshAgent.command 2>/dev/null || true
-
-# Add instructions file for the user
-cat <<EOF > build/READ_ME_FIRST.txt
-=== IMPORTANT: HOW TO OPEN ===
-
-Because this installer is not from the App Store, macOS may block it.
-
-To open it properly (required only ONCE):
-
-1. Right-click (or Control-click) on "Install_MeshAgent.command".
-2. Select "Open" from the menu.
-3. Click "Open" in the dialog box.
-
-If you just double-click, macOS might say it "cannot be opened" or is "damaged".
-Please use the Right-click -> Open method described above.
+# Create Info.plist (Required for a valid .app)
+cat <<EOF > "$CONTENTS/Info.plist"
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>MeshAgent Installer</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.meshcentral.agent.installer</string>
+    <key>CFBundleName</key>
+    <string>MeshAgent Installer</string>
+    <key>CFBundleVersion</key>
+    <string>1.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+</dict>
+</plist>
 EOF
 
-# Create DMG using hdiutil
+# Ad-hoc sign the App Bundle (Required for Apple Silicon)
+echo "Signing App Bundle..."
+codesign --force --deep --sign - "$APP_BUNDLE" 2>/dev/null || echo "Codesign warning (ignore on Linux)"
+
+# Create a symlink to Applications folder to encourage drag-and-drop
+ln -s /Applications "build/Applications"
+
+# Add instructions
+cat <<EOF > build/INSTRUCTIONS.txt
+1. Drag "MeshAgent Installer" to the "Applications" folder.
+2. Open your Applications folder.
+3. Right-Click (or Control-Click) the app and select "Open".
+4. Click "Open" in the dialog.
+EOF
+
+# Create DMG
 echo "Creating DMG..."
-hdiutil create -volname "$APP_NAME" -srcfolder build -ov -format UDZO "dist/$DMG_NAME"
+hdiutil create -volname "MeshAgent Installer" -srcfolder build -ov -format UDZO "dist/$DMG_NAME"
 
-echo "DMG created at dist/$DMG_NAME"
+echo "Done. DMG created at dist/$DMG_NAME"
