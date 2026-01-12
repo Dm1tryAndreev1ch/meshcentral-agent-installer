@@ -11,17 +11,35 @@ mkdir -p build dist
 
 # Download the agent
 echo "Downloading agent..."
-curl -o build/meshagent "$AGENT_URL"
+curl -L -o build/meshagent "$AGENT_URL"
 chmod +x build/meshagent
 
 # Create the installer wrapper script
 # .command extension makes it double-clickable in macOS Finder
+# CRITICAL: We must copy the agent to a writable location (e.g., /tmp) before running it,
+# because the DMG volume is read-only, and the agent tries to write config/temp files during install.
 cat <<EOF > build/Install_MeshAgent.command
 #!/bin/bash
 DIR="\$( cd "\$( dirname "\${BASH_SOURCE[0]}" )" && pwd )"
+INSTALL_DIR="/tmp/meshagent_install_\$RANDOM"
+
+# Fix "Language environment variable was not set"
+export LANG=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
+
+echo "Preparing installer..."
+mkdir -p "\$INSTALL_DIR"
+cp "\$DIR/meshagent" "\$INSTALL_DIR/"
+chmod +x "\$INSTALL_DIR/meshagent"
+
 echo "Installing MeshCentral Agent..."
-# Run the agent install command
-sudo "\$DIR/meshagent" -install
+echo "You may be asked for your password."
+# Run the agent install command from the temporary directory
+sudo "\$INSTALL_DIR/meshagent" -install
+
+echo "Cleaning up..."
+rm -rf "\$INSTALL_DIR"
+
 echo "Done. You can close this window."
 read -p "Press Enter to exit..."
 EOF
